@@ -25,6 +25,18 @@ export const MIN_ALPHA = 1.0 / 255.0;
 /** exp(-0.5 * SIGMA_CUTOFF^2) = exp(-4.5) ≈ 0.0111. */
 export const GAUSSIAN_FLOOR = Math.exp(-0.5 * SIGMA_CUTOFF * SIGMA_CUTOFF);
 
+/**
+ * Outlier-splat fade thresholds, expressed as fractions of image height.
+ *
+ * A splat whose un-clamped 3σ screen-radius exceeds `START × height`
+ * starts fading; at `END × height` its alpha reaches 0 and the splat is
+ * discarded. Defends against pathological mega-splats that would
+ * otherwise tint the whole frame. Image-height-relative so the same
+ * world-space splats fade at any render resolution. Matches splat-transform.
+ */
+export const RADIUS_FADE_START_FRAC = 1024 / 1080;
+export const RADIUS_FADE_END_FRAC = 2048 / 1080;
+
 /** WGSL prelude with the constants above, prepended to every shader. */
 export const SHADER_PRELUDE = /* wgsl */`
 const TILE_SIZE: u32 = ${TILE_SIZE}u;
@@ -34,4 +46,6 @@ const OPACITY_CAP: f32 = ${OPACITY_CAP};
 const MIN_TRANSMITTANCE: f32 = ${MIN_TRANSMITTANCE};
 const MIN_ALPHA: f32 = ${MIN_ALPHA};
 const GAUSSIAN_FLOOR: f32 = ${GAUSSIAN_FLOOR.toExponential(10)};
+const RADIUS_FADE_START_FRAC: f32 = ${RADIUS_FADE_START_FRAC};
+const RADIUS_FADE_END_FRAC: f32 = ${RADIUS_FADE_END_FRAC};
 `;

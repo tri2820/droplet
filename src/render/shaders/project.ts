@@ -167,7 +167,25 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     // Screen-space radius (3σ AABB radius) from eigenvalue bound.
     let mid = 0.5 * (cov2_00 + cov2_11);
     let lambda1 = mid + sqrt(max(0.1, mid * mid - det));
-    let radius = ceil(SIGMA_CUTOFF * sqrt(lambda1));
+    let radiusRaw = SIGMA_CUTOFF * sqrt(lambda1);
+
+    // Outlier-splat fade. A handful of trained splats project to
+    // screen-spanning footprints (close-by mega-splats or training
+    // pathologies); without a fade they tint the whole frame and
+    // saturate the rasterizer's tile coverage. Linearly drop alpha
+    // from 1 → 0 as the un-clamped radius grows past fadeStart,
+    // fully discarded past fadeEnd. Thresholds are fractions of
+    // image height so the SAME world-space splats fade at every
+    // render resolution. Matches splat-transform's RADIUS_FADE_*_FRAC.
+    let fadeStart = RADIUS_FADE_START_FRAC * u.height;
+    let fadeEnd = RADIUS_FADE_END_FRAC * u.height;
+    let radiusFade = clamp((fadeEnd - radiusRaw) / (fadeEnd - fadeStart), 0.0, 1.0);
+    if (radiusFade <= 0.0) {
+        tileCounts[idx] = 0u;
+        projected[idx * 3u + 0u] = vec4<f32>(0.0, 0.0, -1.0, 0.0);
+        return;
+    }
+    let radius = ceil(min(radiusRaw, fadeEnd));
 
     // View-dependent color via SH evaluation.
     var color = dc;
@@ -175,9 +193,16 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let viewDir = normalize(posCam);
     color = color + evalSH(idx, viewDir);
     `}
-    color = max(color + vec3<f32>(0.5), vec3<f32>(0.0));
+    // Clamp the per-splat color to [0, 1]. The SH-C0 + 0.5 convention
+    // assumes the model was trained to land in this range, but real
+    // scenes commonly contain a small fraction of splats with
+    // out-of-range bright values (training pathologies near highlights
+    // / lights). Without a clamp these saturate to white halos when
+    // many overlap. We clamp per-splat rather than tone-map post-
+    // composite so each splat's contribution stays physically bounded.
+    color = clamp(color + vec3<f32>(0.5), vec3<f32>(0.0), vec3<f32>(1.0));
 
-    let alpha = sigmoid(opacityLogit);
+    let alpha = sigmoid(opacityLogit) * radiusFade;
 
     projected[idx * 3u + 0u] = vec4<f32>(screenX, screenY, radius, depth);
     projected[idx * 3u + 1u] = vec4<f32>(conicA, conicB, conicC, alpha);
