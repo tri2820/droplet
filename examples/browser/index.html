@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>droplet demo</title>
+    <style>
+      :root { color-scheme: dark; }
+      html, body { margin: 0; height: 100%; background: #0a0c10; color: #c8ccd6;
+        font: 14px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      #app { padding: 24px; max-width: 1280px; margin: 0 auto; }
+      #app h1 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+      #app p { margin: 4px 0; color: #8a92a6; }
+      #canvas { margin-top: 16px; background: #000; image-rendering: pixelated; max-width: 100%; }
+      #stats { margin-top: 12px; font: 12px/1.5 "JetBrains Mono", ui-monospace, monospace; }
+      .err { color: #ff6e6e; }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <h1>droplet — splat renderer + voxelizer</h1>
+      <p>Drag to orbit. Scroll to dolly. 5,000 synthetic splats rendered every frame on demand.</p>
+      <canvas id="canvas" width="640" height="480" style="touch-action: none; cursor: grab;"></canvas>
+      <div id="stats"></div>
+    </div>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

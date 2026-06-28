@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../..",
+    "types": ["@webgpu/types", "bun-types"]
+  },
+  "include": ["./*.ts", "../../src/**/*.ts"],
+  "exclude": []
+}

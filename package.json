@@ -1,0 +1,42 @@
+{
+  "name": "droplet",
+  "version": "0.1.0",
+  "description": "WebGPU 3D Gaussian Splatting renderer and voxelizer. Independent reimplementation of SuperSplat's renderer + voxel collision pipeline.",
+  "type": "module",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./render": "./src/render/index.ts",
+    "./voxel": "./src/voxel/index.ts"
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "bun build ./src/index.ts --outdir ./dist --target browser --format esm",
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "example": "bun --cwd examples/browser serve"
+  },
+  "keywords": [
+    "gaussian-splatting",
+    "3dgs",
+    "webgpu",
+    "voxelization",
+    "collision",
+    "renderer"
+  ],
+  "license": "MIT",
+  "devDependencies": {
+    "@webgpu/types": "^0.1.69",
+    "@types/bun": "latest",
+    "typescript": "^5.6.0"
+  },
+  "peerDependencies": {
+    "typescript": "^5.0.0"
+  }
+}
