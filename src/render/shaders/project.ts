@@ -148,12 +148,20 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     var cov2_01 = b01 * j11 + b02 * j12;
     var cov2_11 = b11 * j11 + b12 * j12;
 
-    // Apply anti-aliasing dilation: adds a 0.3px Gaussian to the splat.
+    // Mip-Splatting (Yu et al. 2024). Add AA_DILATION_COV to the diagonal
+    // — but compensate alpha by sqrt(detOrig/detBlur) so a flat / edge-on
+    // splat that gets inflated by the dilation doesn't keep full opacity
+    // and project as a bright streak. THIS is the difference between
+    // smooth splat rendering and "feathery / spike" artifacts on flat
+    // splats. Ported from PlayCanvas gsplatCorner.js (GSPLAT_AA branch).
+    let detOrig = cov2_00 * cov2_11 - cov2_01 * cov2_01;
     cov2_00 = cov2_00 + AA_DILATION_COV;
     cov2_11 = cov2_11 + AA_DILATION_COV;
+    let detBlur = cov2_00 * cov2_11 - cov2_01 * cov2_01;
+    let aaFactor = sqrt(max(detOrig / detBlur, 0.0));
 
     // Invert 2x2 covariance to get conic.
-    let det = cov2_00 * cov2_11 - cov2_01 * cov2_01;
+    let det = detBlur;
     if (det <= 1.0e-6) {
         tileCounts[idx] = 0u;
         projected[idx * 3u + 0u] = vec4<f32>(0.0, 0.0, -1.0, 0.0);
@@ -165,8 +173,13 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let conicC = cov2_00 * invDet;
 
     // Screen-space radius (3σ AABB radius) from eigenvalue bound.
+    // Floor the smaller eigenvalue at 0.1 (matches PC) so a near-degenerate
+    // 2D ellipse can't project as a sub-pixel sliver that misses every
+    // pixel center; cap the larger eigenvalue's radius at half the smaller
+    // viewport dim so a thin needle splat cannot span the whole screen.
     let mid = 0.5 * (cov2_00 + cov2_11);
-    let lambda1 = mid + sqrt(max(0.1, mid * mid - det));
+    let radiusEig = sqrt(max(0.1, mid * mid - det));
+    let lambda1 = mid + radiusEig;
     let radiusRaw = SIGMA_CUTOFF * sqrt(lambda1);
 
     // Outlier-splat fade. A handful of trained splats project to
@@ -193,16 +206,15 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
     let viewDir = normalize(posCam);
     color = color + evalSH(idx, viewDir);
     `}
-    // Clamp the per-splat color to [0, 1]. The SH-C0 + 0.5 convention
-    // assumes the model was trained to land in this range, but real
-    // scenes commonly contain a small fraction of splats with
-    // out-of-range bright values (training pathologies near highlights
-    // / lights). Without a clamp these saturate to white halos when
-    // many overlap. We clamp per-splat rather than tone-map post-
-    // composite so each splat's contribution stays physically bounded.
-    color = clamp(color + vec3<f32>(0.5), vec3<f32>(0.0), vec3<f32>(1.0));
+    // Match PlayCanvas convention: only floor at 0 (no upper clamp).
+    // The 0.3 AA dilation we just added would over-brighten flat
+    // splats without the aaFactor opacity compensation below.
+    color = max(color + vec3<f32>(0.5), vec3<f32>(0.0));
 
-    let alpha = sigmoid(opacityLogit) * radiusFade;
+    // Final per-splat alpha: scene opacity × outlier-radius fade ×
+    // Mip-Splatting AA compensation (cancels the brightness inflation
+    // from the +0.3 covariance dilation on edge-on flat splats).
+    let alpha = sigmoid(opacityLogit) * radiusFade * aaFactor;
 
     projected[idx * 3u + 0u] = vec4<f32>(screenX, screenY, radius, depth);
     projected[idx * 3u + 1u] = vec4<f32>(conicA, conicB, conicC, alpha);
