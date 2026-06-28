@@ -3,3 +3,6 @@ dist
 bun.lockb
 *.log
 .DS_Store
+# large local data — keep out of git
+examples/browser/scene.ply
+*.ply

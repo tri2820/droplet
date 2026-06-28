@@ -30,6 +30,8 @@ export { BlockMaskBuffer, type VoxelBlock } from './voxel/block-mask-buffer.ts';
 
 export { createDevice, type DeviceOptions } from './gpu/device.ts';
 
+export { loadPlySplats, splatBounds } from './io/ply.ts';
+
 export {
     mat4LookAt, mat4Identity, vec3,
     type Vec3, type Mat4, type Quat

@@ -1,16 +1,18 @@
 /**
- * Browser demo: build a synthetic spherical-shell scene of 5,000 colored
- * splats, render it with mouse-orbit camera, voxelize once at the start.
+ * Browser demo: fetch a real .ply Gaussian-splat scene and render it with
+ * an orbit camera. Synthetic-sphere fallback is built-in if scene.ply is
+ * absent or fails to fetch.
  *
  * Controls:
- *   - drag                orbit camera around the origin
+ *   - drag                orbit camera around scene center
  *   - scroll wheel        dolly in/out
  */
 
 import {
     createDevice,
     Renderer,
-    voxelize,
+    loadPlySplats,
+    splatBounds,
     mat4LookAt,
     type SplatData,
     type Vec3,
@@ -40,8 +42,7 @@ const buildSphereShell = (n: number, radius: number): SplatData => {
         positions[i * 3 + 0] = radius * Math.cos(theta) * Math.sin(phi);
         positions[i * 3 + 1] = radius * Math.sin(theta) * Math.sin(phi);
         positions[i * 3 + 2] = radius * Math.cos(phi);
-        rotations[i * 4 + 0] = 1; rotations[i * 4 + 1] = 0;
-        rotations[i * 4 + 2] = 0; rotations[i * 4 + 3] = 0;
+        rotations[i * 4 + 0] = 1;
         logScales[i * 3 + 0] = -3.2;
         logScales[i * 3 + 1] = -3.2;
         logScales[i * 3 + 2] = -3.2;
@@ -50,36 +51,57 @@ const buildSphereShell = (n: number, radius: number): SplatData => {
         colorsDC[i * 3 + 1] = Math.sin(theta) * 0.5;
         colorsDC[i * 3 + 2] = Math.cos(phi) * 0.5;
     }
-    return {
-        count: n,
-        positions, rotations, logScales, opacityLogits, colorsDC,
-        shBands: 0
-    };
+    return { count: n, positions, rotations, logScales, opacityLogits, colorsDC,
+             shBands: 0 };
 };
 
 /**
- * Orbit camera state. The camera sits on a sphere of radius `dist` around
- * the origin, parameterised by yaw (around world-up) and pitch (elevation).
- *
- * Pitch is clamped to (-89°, 89°) so the up vector never flips.
+ * Try to load scene.ply from the dev server. Returns null on any failure so
+ * the demo falls back to the synthetic shell.
+ */
+const tryLoadPly = async (url: string): Promise<SplatData | null> => {
+    try {
+        const t0 = performance.now();
+        const r = await fetch(url);
+        if (!r.ok) return null;
+        const buf = await r.arrayBuffer();
+        log(`fetched ${url} (${(buf.byteLength / 1024 / 1024).toFixed(1)} MB) in `
+            + `${(performance.now() - t0).toFixed(0)} ms`);
+        const t1 = performance.now();
+        const data = loadPlySplats(buf);
+        log(`parsed ${data.count.toLocaleString()} splats in `
+            + `${(performance.now() - t1).toFixed(0)} ms (SH bands: ${data.shBands})`);
+        return data;
+    } catch (e) {
+        log(`PLY load failed: ${(e as Error).message}`, 'err');
+        return null;
+    }
+};
+
+/**
+ * Orbit camera around a target point. Pitch is clamped so up never flips.
  */
 class OrbitCamera {
     yaw = 0;
     pitch = 0;
-    dist = 4;
+    dist: number;
+    target: Vec3;
+
+    constructor(target: Vec3, dist: number) {
+        this.target = target;
+        this.dist = dist;
+    }
 
     eye(): Vec3 {
         const cp = Math.cos(this.pitch);
         return [
-            this.dist * cp * Math.sin(this.yaw),
-            this.dist * Math.sin(this.pitch),
-            this.dist * cp * Math.cos(this.yaw)
+            this.target[0] + this.dist * cp * Math.sin(this.yaw),
+            this.target[1] + this.dist * Math.sin(this.pitch),
+            this.target[2] + this.dist * cp * Math.cos(this.yaw)
         ];
     }
 
-    view() {
-        return mat4LookAt(this.eye(), [0, 0, 0], [0, 1, 0]);
-    }
+    view() { return mat4LookAt(this.eye(), this.target, [0, 1, 0]); }
 }
 
 const main = async () => {
@@ -91,25 +113,30 @@ const main = async () => {
         });
         log(`device acquired`);
 
-        const data = buildSphereShell(5000, 1.0);
-        log(`built ${data.count} synthetic splats`);
+        // Real scene first; synthetic if missing.
+        let data = await tryLoadPly('/scene.ply');
+        if (!data) {
+            log(`scene.ply not found — using synthetic 5000-splat sphere`);
+            data = buildSphereShell(5000, 1.0);
+        }
+
+        // Center camera on scene bounds; distance = 1.5 × half-diagonal.
+        const b = splatBounds(data);
+        const center: Vec3 = [
+            (b.min[0] + b.max[0]) * 0.5,
+            (b.min[1] + b.max[1]) * 0.5,
+            (b.min[2] + b.max[2]) * 0.5,
+        ];
+        const half = Math.hypot(
+            b.max[0] - b.min[0],
+            b.max[1] - b.min[1],
+            b.max[2] - b.min[2]
+        ) * 0.5;
+        const cam = new OrbitCamera(center, Math.max(0.5, half * 1.5));
+        log(`scene bounds: center=(${center.map(v => v.toFixed(2)).join(', ')}) `
+            + `radius≈${half.toFixed(2)}`);
 
         const renderer = new Renderer(device);
-        const cam = new OrbitCamera();
-
-        // --- Voxelize once up front ---
-        const t1 = performance.now();
-        const result = await voxelize(device, data, {
-            voxelResolution: 0.05,
-            opacityCutoff: 0.1
-        });
-        const voxMs = performance.now() - t1;
-        log(`voxelize: ${voxMs.toFixed(1)} ms — `
-            + `${result.numBlocksX}×${result.numBlocksY}×${result.numBlocksZ} blocks, `
-            + `${result.buffer.count} non-empty, `
-            + `${result.buffer.popcount()} solid voxels`);
-
-        // --- Render loop, on-demand ---
         const fpsRow = document.createElement('div');
         stats.appendChild(fpsRow);
 
@@ -120,7 +147,7 @@ const main = async () => {
             try {
                 const t0 = performance.now();
                 const rgba = await renderer.render(
-                    data,
+                    data!,
                     {
                         width: canvas.width,
                         height: canvas.height,
@@ -131,10 +158,6 @@ const main = async () => {
                     { r: 0.04, g: 0.05, b: 0.07, a: 1.0 }
                 );
                 const ms = performance.now() - t0;
-                // The renderer's Uint8Array shares an ArrayBuffer with no
-                // particular ownership; copy into a fresh ArrayBuffer so the
-                // ImageData constructor (which rejects SharedArrayBuffer)
-                // accepts it.
                 const out = new Uint8ClampedArray(rgba);
                 const img = new ImageData(out, canvas.width, canvas.height);
                 ctx.putImageData(img, 0, 0);
@@ -149,7 +172,6 @@ const main = async () => {
         await draw();
         log(`drag to orbit · wheel to dolly`);
 
-        // --- Mouse input ---
         let dragging = false;
         let lastX = 0, lastY = 0;
         canvas.addEventListener('pointerdown', (e) => {
@@ -166,10 +188,8 @@ const main = async () => {
             const dx = e.clientX - lastX;
             const dy = e.clientY - lastY;
             lastX = e.clientX; lastY = e.clientY;
-            // 0.005 rad/px feels right at 640x480
             cam.yaw -= dx * 0.005;
             cam.pitch += dy * 0.005;
-            // clamp pitch so up-vector never flips
             const pmax = Math.PI / 2 - 0.01;
             if (cam.pitch > pmax) cam.pitch = pmax;
             if (cam.pitch < -pmax) cam.pitch = -pmax;
@@ -178,7 +198,7 @@ const main = async () => {
         canvas.addEventListener('wheel', (e) => {
             e.preventDefault();
             const factor = Math.exp(e.deltaY * 0.001);
-            cam.dist = Math.min(50, Math.max(1.5, cam.dist * factor));
+            cam.dist = Math.min(half * 10, Math.max(0.1, cam.dist * factor));
             draw();
         }, { passive: false });
     } catch (e) {
