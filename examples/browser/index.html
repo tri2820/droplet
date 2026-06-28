@@ -19,8 +19,19 @@
   <body>
     <div id="app">
       <h1>droplet — splat renderer + voxelizer</h1>
-      <p>Drag to orbit. Scroll to dolly. 5,000 synthetic splats rendered every frame on demand.</p>
-      <canvas id="canvas" width="640" height="480" style="touch-action: none; cursor: grab;"></canvas>
+      <p>Drag to orbit. Scroll to dolly. droplet (left) vs splat-transform reference (right) — same camera, same scene.</p>
+      <div style="display: flex; gap: 12px; align-items: flex-start; flex-wrap: wrap;">
+        <div style="flex: 0 0 auto;">
+          <div style="font: 12px/1.5 ui-monospace,monospace;color:#a8b3c5">droplet</div>
+          <canvas id="canvas" width="320" height="240"
+                  style="touch-action: none; cursor: grab; display:block; width:320px; height:240px; image-rendering: pixelated;"></canvas>
+        </div>
+        <div style="flex: 0 0 auto;">
+          <div style="font: 12px/1.5 ui-monospace,monospace;color:#a8b3c5">reference (splat-transform)</div>
+          <img id="reference" src="/reference.webp"
+               style="display:block; width:320px; height:240px; background:#000; image-rendering: pixelated;" />
+        </div>
+      </div>
       <div id="stats"></div>
     </div>
     <script type="module" src="./main.ts"></script>

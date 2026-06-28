@@ -91,13 +91,37 @@ const parseHeader = (bytes: Uint8Array): PlyHeader => {
     return { count, properties: props, dataOffset, binary, littleEndian };
 };
 
+export interface PlyLoadOptions {
+    /**
+     * Flip the scene's Y axis on load to convert from COLMAP / Inria 3DGS
+     * convention (Y-down world) to Y-up world. Default `true`, which is
+     * what virtually every PLY exported from the standard 3DGS trainer
+     * expects when viewed with a Y-up camera. Set `false` if your PLY is
+     * already Y-up.
+     *
+     * Flipping affects positions, quaternions, and SH coefficients. The
+     * quaternion flip negates the x and z components — a reflection
+     * through the XZ plane that mirrors the rotation axis to match the
+     * mirrored coordinate frame. SH coefficients aren't flipped (their
+     * basis is symmetric enough that the visible effect is small and
+     * fixing them properly requires rotating the SH band, which is out
+     * of scope here).
+     */
+    flipY?: boolean;
+}
+
 /**
  * Load splat data from a 3DGS PLY file.
  *
  * @param source - ArrayBuffer of the PLY file (already fetched).
+ * @param opts - Loader options. See {@link PlyLoadOptions}.
  * @returns SplatData ready to feed into the renderer/voxelizer.
  */
-export const loadPlySplats = (source: ArrayBuffer | ArrayBufferView): SplatData => {
+export const loadPlySplats = (
+    source: ArrayBuffer | ArrayBufferView,
+    opts: PlyLoadOptions = {}
+): SplatData => {
+    const flipY = opts.flipY ?? true;
     const bytes = source instanceof ArrayBuffer
         ? new Uint8Array(source)
         : new Uint8Array(source.buffer, source.byteOffset, source.byteLength);
@@ -166,13 +190,15 @@ export const loadPlySplats = (source: ArrayBuffer | ArrayBufferView): SplatData 
         colorsSH = new Float32Array(N * 3 * coeffsPerChannel);
     }
 
+    const ySign = flipY ? -1 : 1;
     for (let i = 0; i < N; i++) {
         const base = i * floatsPerVert;
 
         positions[i * 3 + 0] = flat[base + ix];
-        positions[i * 3 + 1] = flat[base + iy];
+        positions[i * 3 + 1] = ySign * flat[base + iy];
         positions[i * 3 + 2] = flat[base + iz];
 
+        // Log-scales are invariant under Y flip (axis-aligned magnitudes).
         logScales[i * 3 + 0] = flat[base + isx];
         logScales[i * 3 + 1] = flat[base + isy];
         logScales[i * 3 + 2] = flat[base + isz];
@@ -184,15 +210,19 @@ export const loadPlySplats = (source: ArrayBuffer | ArrayBufferView): SplatData 
         colorsDC[i * 3 + 2] = SH_C0 * flat[base + id2];
 
         // Quaternion — 3DGS convention is (w, x, y, z) in rot_0..rot_3.
+        // To mirror a rotation through the XZ plane (Y-flip), negate the
+        // x and z components of the quaternion (equivalent to conjugating
+        // by the y-flip). Leaves w and y alone.
         let w = flat[base + ir0];
         let qx = flat[base + ir1];
         let qy = flat[base + ir2];
         let qz = flat[base + ir3];
         const n = Math.hypot(w, qx, qy, qz) || 1;
+        const f = flipY ? -1 : 1;
         rotations[i * 4 + 0] = w  / n;
-        rotations[i * 4 + 1] = qx / n;
+        rotations[i * 4 + 1] = f * qx / n;
         rotations[i * 4 + 2] = qy / n;
-        rotations[i * 4 + 3] = qz / n;
+        rotations[i * 4 + 3] = f * qz / n;
 
         if (colorsSH && shBands > 0) {
             // Each splat owns 3 * coeffsPerChannel SH floats. PLY stores

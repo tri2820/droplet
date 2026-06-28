@@ -59,7 +59,9 @@ const buildSphereShell = (n: number, radius: number): SplatData => {
  * Try to load scene.ply from the dev server. Returns null on any failure so
  * the demo falls back to the synthetic shell.
  */
-const tryLoadPly = async (url: string): Promise<SplatData | null> => {
+const tryLoadPly = async (
+    url: string, opts: { flipY?: boolean } = {}
+): Promise<SplatData | null> => {
     try {
         const t0 = performance.now();
         const r = await fetch(url);
@@ -68,9 +70,10 @@ const tryLoadPly = async (url: string): Promise<SplatData | null> => {
         log(`fetched ${url} (${(buf.byteLength / 1024 / 1024).toFixed(1)} MB) in `
             + `${(performance.now() - t0).toFixed(0)} ms`);
         const t1 = performance.now();
-        const data = loadPlySplats(buf);
+        const data = loadPlySplats(buf, opts);
         log(`parsed ${data.count.toLocaleString()} splats in `
-            + `${(performance.now() - t1).toFixed(0)} ms (SH bands: ${data.shBands})`);
+            + `${(performance.now() - t1).toFixed(0)} ms (SH bands: ${data.shBands})`
+            + (opts.flipY === false ? ' [no Y-flip]' : ''));
         return data;
     } catch (e) {
         log(`PLY load failed: ${(e as Error).message}`, 'err');
@@ -114,6 +117,7 @@ const main = async () => {
         log(`device acquired`);
 
         // Real scene first; synthetic if missing.
+        // Use the default Y-flip (3DGS PLYs are Y-down; we want Y-up).
         let data = await tryLoadPly('/scene.ply');
         if (!data) {
             log(`scene.ply not found — using synthetic 5000-splat sphere`);
