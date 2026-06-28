@@ -69,13 +69,6 @@ fn main(
         if (r <= 0.0 || abs(dx) > r || abs(dy) > r) { continue; }
         let v1 = projected[splatIdx * 3u + 1u];
         let power = -0.5 * (v1.x * dx * dx + 2.0 * v1.y * dx * dy + v1.z * dy * dy);
-        // Tight ellipse cull: skip the pixel if it's outside the 3σ
-        // ellipse of the Gaussian. Without this, the screen-aligned
-        // bbox includes pixels that are off-axis of an elongated splat
-        // and they accumulate non-trivial alpha at the corners of the
-        // square bbox. PC's oriented-quad rasterizer avoids this by
-        // construction; we do it explicitly here.
-        if (power < -4.5) { continue; }
         if (power > 0.0) { continue; }
         let alpha = min(OPACITY_CAP, v1.w * max(0.0, exp(power) - GAUSSIAN_FLOOR));
         if (alpha < MIN_ALPHA) { continue; }

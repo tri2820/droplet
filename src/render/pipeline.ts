@@ -30,8 +30,15 @@ import { GpuRadixSorter } from '../gpu/radix-sort.ts';
 
 /** Maximum splats per project+rasterize chunk. */
 const CHUNK_CAP = 200_000;
-/** Maximum tile coverage per splat (clamp to prevent runaway pair growth). */
-const MAX_COVERAGE_PER_SPLAT = 1024;
+/**
+ * Maximum tile coverage per splat (clamp to prevent runaway pair growth).
+ * Picked to comfortably cover a viewport-sized splat at 1080p: 1920/16 ×
+ * 1080/16 = 120 × 68 ≈ 8160 tiles. The previous value of 1024 silently
+ * truncated large close-up splats to ~32×32 tiles, leaving the rest of
+ * the splat's footprint unrendered — visible as feathery directional
+ * edges along the partial-emit boundary.
+ */
+const MAX_COVERAGE_PER_SPLAT = 16_384;
 
 export interface RendererOptions {
     /** Cap on splats per project+rasterize dispatch. Default 200k. */
