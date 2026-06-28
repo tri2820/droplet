@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8" />
+    <title>droplet — test harness</title>
+    <style>
+        body {
+            margin: 0;
+            background: #0d0f12;
+            color: #e6e6e6;
+            font: 14px/1.5 ui-monospace, monospace;
+            padding: 20px;
+        }
+        h1 { font-size: 16px; margin: 0 0 12px 0; }
+        #results { white-space: pre-wrap; }
+        .pass { color: #5dbf7a; }
+        .fail { color: #ff6b6b; font-weight: bold; }
+        .info { color: #a8b3c5; }
+        button {
+            background: #1a2030; color: #e6e6e6;
+            border: 1px solid #2a3550;
+            padding: 6px 12px; cursor: pointer; margin-right: 6px;
+        }
+        button:hover { background: #2a3550; }
+    </style>
+</head>
+<body>
+    <h1>droplet — intensive test suite</h1>
+    <div>
+        <button id="run">run all</button>
+        <button id="run-slow">run all + slow (1M splats)</button>
+    </div>
+    <pre id="results"></pre>
+    <script type="module" src="/test.ts"></script>
+</body>
+</html>

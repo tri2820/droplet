@@ -153,7 +153,19 @@ export class Renderer {
             this.outRgbaBuf = emptyBuffer(this.device, pixels * 4,
                 GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.COPY_SRC, 'out-rgba');
             this.accumPixels = pixels;
+            this.accumInit = null;  // regrow init scratch
         }
+    }
+
+    /** Lazily-cached "(0,0,0,1) per pixel" Float32Array used to clear accum. */
+    private accumInit: Float32Array | null = null;
+    private getAccumInit(pixels: number): Float32Array {
+        if (!this.accumInit || this.accumInit.length < pixels * 4) {
+            const arr = new Float32Array(pixels * 4);
+            for (let p = 0; p < pixels; p++) arr[p * 4 + 3] = 1;  // T = 1
+            this.accumInit = arr;
+        }
+        return this.accumInit;
     }
 
     /**
@@ -181,8 +193,12 @@ export class Renderer {
 
         this.ensureImage(pixels);
         this.ensureTileOffsets(numTiles);
-        // Clear the accumulator (4 floats per pixel).
-        this.device.queue.writeBuffer(this.accumBuf!, 0, new Float32Array(pixels * 4));
+        // Init the accumulator to (R=0, G=0, B=0, T=1) per pixel. The
+        // rasterize shader RESUMES from this state across chunks; starting
+        // with T=1 (full transmittance) is required or chunk 0's results
+        // collapse to zero alpha.
+        const initArr = this.getAccumInit(pixels);
+        this.device.queue.writeBuffer(this.accumBuf!, 0, initArr.buffer, 0, pixels * 16);
 
         if (numVisible === 0) {
             return this.composite(camera, background, pipelines, numTiles);
@@ -336,7 +352,11 @@ export class Renderer {
             }
             this.device.queue.submit([enc5.finish()]);
 
-            const findU = this.makeFindUniform(numPairs, numTiles);
+            // find-boundaries uses 2D dispatch to stay under WebGPU's
+            // 65535 per-dimension workgroup cap. A linear thread index is
+            // reconstructed in the shader as gid.y * stride + gid.x.
+            const fbDispatch = dispatch2D(numPairs, 64);
+            const findU = this.makeFindUniform(numPairs, numTiles, fbDispatch.stride);
             const findBg = this.device.createBindGroup({
                 layout: pipelines.findBoundaries.getBindGroupLayout(0),
                 entries: [
@@ -350,7 +370,7 @@ export class Renderer {
                 const p = enc6.beginComputePass();
                 p.setPipeline(pipelines.findBoundaries);
                 p.setBindGroup(0, findBg);
-                p.dispatchWorkgroups(Math.ceil(numPairs / 64));
+                p.dispatchWorkgroups(fbDispatch.x, fbDispatch.y);
                 p.end();
             }
             this.device.queue.submit([enc6.finish()]);
@@ -496,9 +516,9 @@ export class Renderer {
         return buf;
     }
 
-    private makeFindUniform(numPairs: number, numTiles: number): GPUBuffer {
+    private makeFindUniform(numPairs: number, numTiles: number, stride: number): GPUBuffer {
         const buf = this.device.createBuffer({ size: 16, usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST });
-        this.device.queue.writeBuffer(buf, 0, new Uint32Array([numPairs, numTiles, 0, 0]));
+        this.device.queue.writeBuffer(buf, 0, new Uint32Array([numPairs, numTiles, stride, 0]));
         return buf;
     }
 
@@ -563,6 +583,27 @@ export class Renderer {
         this.outRgbaBuf?.destroy();
     }
 }
+
+/**
+ * Compute a 2D workgroup dispatch that linearly covers `n` items at
+ * `wgSize` items per workgroup, splitting across X and Y when the
+ * single-dim workgroup count would exceed WebGPU's 65535 limit.
+ *
+ * The shader reconstructs the linear index as `gid.y * stride + gid.x`,
+ * where `stride = x * wgSize`. Threads with linear index >= n must
+ * early-return.
+ */
+const dispatch2D = (
+    n: number, wgSize: number
+): { x: number; y: number; stride: number } => {
+    const totalWg = Math.max(1, Math.ceil(n / wgSize));
+    if (totalWg <= 65535) return { x: totalWg, y: 1, stride: totalWg * wgSize };
+    // Pick X = 32768 so stride is a round number and Y stays small even
+    // at the largest realistic pair counts (1 G pairs → Y ~ 500).
+    const x = 32768;
+    const y = Math.ceil(totalWg / x);
+    return { x, y, stride: x * wgSize };
+};
 
 interface GpuPipelines {
     project: GPUComputePipeline;

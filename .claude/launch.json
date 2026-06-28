@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "droplet-demo",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "examples/browser/serve.ts"],
+      "port": 5173
+    }
+  ]
+}

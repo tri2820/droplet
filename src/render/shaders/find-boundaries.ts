@@ -34,6 +34,11 @@ ${SHADER_PRELUDE}
 struct Uniforms {
     numPairs: u32,
     numTiles: u32,
+    // For 2D dispatch: stride = dispatchX * 64 (workgroup_size.x).
+    // Linear pair index = gid.y * stride + gid.x. Required because a
+    // single-dim dispatch caps at 65535 workgroups in X, but real
+    // scenes can produce > 4 M pairs per chunk → > 65 K workgroups.
+    stride: u32,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -42,7 +47,7 @@ struct Uniforms {
 
 @compute @workgroup_size(64)
 fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
-    let i = gid.x;
+    let i = gid.y * u.stride + gid.x;
     if (i >= u.numPairs) { return; }
     let cur = pairTiles[i];
     if (i == 0u) {

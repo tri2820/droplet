@@ -51,8 +51,13 @@ fn main(
     let px = f32(pixelX) + 0.5;
     let py = f32(pixelY) + 0.5;
 
-    var color = vec3<f32>(0.0);
-    var T: f32 = 1.0;
+    // Resume from prior chunk's state. The host clears outRGBA to
+    // (0, 0, 0, 1) before the first chunk. If T has already saturated
+    // (front splats opaque), skip the whole tile slice for this pixel.
+    let prev = outRGBA[pixelIdx];
+    var color = prev.rgb;
+    var T: f32 = prev.a;
+    if (T < MIN_TRANSMITTANCE) { return; }
 
     for (var i = sliceStart; i < sliceEnd; i = i + 1u) {
         if (T < MIN_TRANSMITTANCE) { break; }
